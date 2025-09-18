@@ -1,0 +1,9 @@
+[project]
+name = "intro-to-agents-quickstart-9-15"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "litellm[proxy]>=1.77.1",
+]
