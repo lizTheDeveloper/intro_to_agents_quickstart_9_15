@@ -1,0 +1,5 @@
+model_list:
+  - model_name: qwen3-32b
+    litellm_params:
+      model: lm_studio/qwen3-32b  # add lm_studio/ prefix to route as LM Studio provider
+      api_key: api-key                 # api key to send your model
