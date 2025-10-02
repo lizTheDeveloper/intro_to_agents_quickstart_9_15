@@ -90,3 +90,16 @@ So yeah, response should be simply "4". No need for explanations since they want
 2025-09-24 18:25:47 | INFO | first_mate_agent.enhanced_agent:handle_tool_call:202 | Executing tool: get_current_weather with args: {'location': 'Tokyo'}
 2025-09-24 18:25:47 | INFO | first_mate_agent.enhanced_agent:handle_tool_call:216 | Tool 'get_current_weather' executed successfully
 2025-09-24 18:25:47 | INFO | first_mate_agent.enhanced_agent:agentic_run:260 | Agentic iteration 1/10
+2025-09-24 18:26:45 | INFO | first_mate_agent.enhanced_agent:agentic_run:274 | Task completed successfully
+2025-09-24 18:26:45 | INFO | __main__:main:39 | ✅ Agentic run test successful
+2025-09-24 18:26:45 | INFO | __main__:main:40 | Final response: The weather in Tokyo is Sunny and 46 degrees celsius....
+2025-09-24 18:26:45 | INFO | __main__:main:46 | Testing conversation summary...
+2025-09-24 18:28:30 | INFO | __main__:main:49 | ✅ Conversation summary test successful
+2025-09-24 18:28:30 | INFO | __main__:main:50 | Summary: <think>
+Okay, let me start by reading through the user's query again. They asked for the weather in ...
+2025-09-24 18:28:30 | INFO | __main__:main:55 | All Enhanced Agent tests completed successfully!
+2025-09-24 18:52:35 | INFO | first_mate_agent.lm_client:test_connection:23 | LM Studio connection test successful
+2025-09-24 18:52:35 | INFO | __main__:main:22 | ✅ LM Studio connection successful!
+2025-09-24 18:52:35 | ERROR | first_mate_agent.lm_client:chat_completion:61 | Chat completion failed: LLM.respond() got an unexpected keyword argument 'temperature'
+2025-09-24 18:52:35 | ERROR | __main__:main:31 | ❌ Chat completion test failed: LLM.respond() got an unexpected keyword argument 'temperature'
+2025-09-24 18:52:35 | INFO | __main__:main:36 | All connection tests completed successfully!

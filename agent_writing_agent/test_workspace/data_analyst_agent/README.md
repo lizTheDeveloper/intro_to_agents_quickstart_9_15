@@ -1,6 +1,6 @@
 # Data Analyst Agent
 
-Agent for reading CSV files, performing basic data analysis, and generating reports
+Analyzes CSV data and generates summary reports
 
 ## Usage
 
@@ -28,4 +28,4 @@ Make sure to set up the required environment variables:
 
 ## Generated on
 
-2025-10-01T17:38:34.012306
+2025-10-01T17:41:42.637649

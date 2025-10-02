@@ -10,8 +10,8 @@ class AgentWritingConfig:
     """Configuration class for Agent Writing Agent"""
     
     # API Configuration
-    OPENAI_BASE_URL = "http://127.0.0.1:1234/v1"
-    OPENAI_API_KEY = "lm-studio"
+    OPENAI_BASE_URL ="https://api.groq.com/openai/v1"
+    OPENAI_API_KEY = os.environ.get("GROQ_API_KEY")
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
     
     # Model Configuration

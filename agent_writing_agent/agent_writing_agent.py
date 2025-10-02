@@ -2,6 +2,8 @@ import os
 import json
 import logging
 import requests
+import subprocess
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -16,13 +18,41 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Dangerous command patterns to block
+BLOCKED_COMMAND_PATTERNS = [
+    r'\brm\s+-rf\b',  # rm -rf
+    r'\bmkfs\b',  # format filesystem
+    r'\bdd\s+if=',  # disk copy
+    r'\b>?\s*/dev/sd[a-z]',  # direct disk writes
+    r'\bshutdown\b',  # system shutdown
+    r'\breboot\b',  # system reboot
+    r'\bkill\s+-9\s+1\b',  # kill init
+    r'\bfork\s*bomb\b',  # fork bomb
+    r':\(\)\{.*:\|:&\};:',  # fork bomb pattern
+    r'\bchmod\s+777\s+/',  # dangerous permissions on root
+    r'\bchown\s+.*\s+/',  # change ownership of root
+    r'\bmv\s+.*\s+/etc',  # move files to system dirs
+    r'\bmv\s+.*\s+/bin',
+    r'\bmv\s+.*\s+/usr',
+    r'\bmv\s+.*\s+/var',
+    r'\brm\s+.*\s+/etc',  # delete system files
+    r'\brm\s+.*\s+/bin',
+    r'\brm\s+.*\s+/usr',
+    r'\bcurl.*sudo',  # curl to sudo
+    r'\bwget.*sudo',  # wget to sudo
+]
+
 class AgentWritingAgent:
     def __init__(self, name: str, model: str, working_directory: str = "./agent_workspace", goal: str = "create and manage AI agents"):
         self.name = name
         self.model = model
-        self.working_directory = Path(working_directory)
+        self.working_directory = Path(working_directory).resolve()
         self.working_directory.mkdir(exist_ok=True)
+        self.venv_path = self.working_directory / "venv"
         self.goal = goal
+
+        # Ensure virtual environment exists
+        self._setup_virtual_environment()
         self.instructions = f"""
 You are an expert AI agent creator and manager. Your primary role is to design, create, and manage other AI agents based on user requirements.
 
@@ -30,8 +60,45 @@ Your capabilities include:
 1. Web search using Tavily API for research on agent design patterns and best practices
 2. URL fetching to gather documentation and examples
 3. File management (read, write, update, list files) for creating agent code
-4. Agent architecture design and implementation
-5. Code generation for Python-based AI agents
+4. Terminal command execution for testing agents, installing dependencies, and running commands
+5. Agent architecture design and implementation
+6. Code generation for Python-based AI agents
+
+⚠️  CRITICAL SECURITY CONSTRAINTS - READ CAREFULLY ⚠️
+
+FILE OPERATIONS:
+- ALL file operations are STRICTLY CONFINED to: {self.working_directory}
+- You CANNOT read or write files outside this directory
+- Paths with ".." or absolute paths outside the working directory will be BLOCKED
+- This is enforced automatically - attempts to escape will fail
+
+PYTHON PACKAGE INSTALLATION:
+- A virtual environment is set up at: {self.venv_path}
+- ALWAYS use the virtual environment for pip install commands
+- Use: source {self.venv_path}/bin/activate && pip install <package>
+- NEVER install packages globally with pip
+- NEVER run pip commands without activating the virtual environment first
+
+TERMINAL COMMANDS:
+- Dangerous system commands (rm -rf, mkfs, dd, shutdown, etc.) are BLOCKED
+- You cannot modify system directories (/etc, /bin, /usr, /var)
+- You cannot change permissions or ownership of system files
+- All commands run from the working directory by default
+- Commands are monitored and logged for security
+
+ALLOWED OPERATIONS:
+✓ Create and modify files within {self.working_directory}
+✓ Install Python packages in the virtual environment
+✓ Run safe commands (git, ls, cat, python, pytest, etc.)
+✓ Test and validate generated agents
+✓ Read and write agent code and documentation
+
+BLOCKED OPERATIONS:
+✗ File access outside {self.working_directory}
+✗ Global pip installations
+✗ Destructive system commands
+✗ Modifying system files or directories
+✗ Privilege escalation attempts
 
 Your workflow should follow these phases:
 
@@ -52,6 +119,7 @@ PHASE 3: IMPLEMENTATION
 - Implement required tools and functions
 - Create configuration files and documentation
 - Set up proper error handling and logging
+- Use the virtual environment for any package installations
 
 PHASE 4: TESTING & VALIDATION
 - Create test scripts for the agent
@@ -66,8 +134,10 @@ Key principles:
 - Include comprehensive documentation
 - Follow Python best practices and conventions
 - Ensure agents are secure and handle edge cases properly
+- ALWAYS respect the security boundaries defined above
 
-Working directory: {working_directory}
+Working directory: {self.working_directory}
+Virtual environment: {self.venv_path}
 
 Available agent templates:
 - basic_agent: Simple agent with core functionality
@@ -75,7 +145,7 @@ Available agent templates:
 
 You can create custom agents by combining and modifying these templates based on requirements.
 
-Please generate tool calls as needed to research, design, and implement agents.
+Please generate tool calls as needed to research, design, and implement agents. Remember to respect all security constraints.
 """
         
         # Initialize OpenAI client
@@ -141,13 +211,13 @@ Please generate tool calls as needed to research, design, and implement agents.
                 "type": "function",
                 "function": {
                     "name": "read_file",
-                    "description": "Read the contents of a file in the working directory",
+                    "description": "Read the contents of a file. SECURITY: File must be within the working directory. Paths with '..' or absolute paths outside working directory will be rejected.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "filename": {
                                 "type": "string",
-                                "description": "The name of the file to read"
+                                "description": "The name of the file to read (relative to working directory)"
                             }
                         },
                         "required": ["filename"]
@@ -158,13 +228,13 @@ Please generate tool calls as needed to research, design, and implement agents.
                 "type": "function",
                 "function": {
                     "name": "write_file",
-                    "description": "Write content to a file in the working directory",
+                    "description": "Write content to a file. SECURITY: File must be within the working directory. Paths with '..' or absolute paths outside working directory will be rejected.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "filename": {
                                 "type": "string",
-                                "description": "The name of the file to write to"
+                                "description": "The name of the file to write to (relative to working directory)"
                             },
                             "content": {
                                 "type": "string",
@@ -184,6 +254,27 @@ Please generate tool calls as needed to research, design, and implement agents.
                         "type": "object",
                         "properties": {},
                         "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_terminal_command",
+                    "description": "Execute a terminal command. SECURITY: Dangerous commands (rm -rf, mkfs, dd, shutdown, etc.) are BLOCKED. For pip install, use virtual environment: source venv/bin/activate && pip install <package>. Working directory must be within workspace.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The terminal command to execute. For pip: use 'source venv/bin/activate && pip install <package>'"
+                            },
+                            "working_directory": {
+                                "type": "string",
+                                "description": "Optional working directory (must be within workspace, defaults to agent's working directory)"
+                            }
+                        },
+                        "required": ["command"]
                     }
                 }
             },
@@ -224,18 +315,85 @@ Please generate tool calls as needed to research, design, and implement agents.
             }
         ]
 
+    def _setup_virtual_environment(self):
+        """Set up a Python virtual environment for isolated package installation"""
+        if not self.venv_path.exists():
+            try:
+                logger.info(f"Creating virtual environment at {self.venv_path}")
+                subprocess.run(
+                    ["python3", "-m", "venv", str(self.venv_path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                logger.info("Virtual environment created successfully")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to create virtual environment: {e}")
+                logger.warning("Continuing without virtual environment")
+            except Exception as e:
+                logger.error(f"Error setting up virtual environment: {e}")
+                logger.warning("Continuing without virtual environment")
+
+    def _validate_path(self, filename: str) -> Optional[Path]:
+        """
+        Validate that a file path is within the working directory.
+        Returns the resolved path if valid, None if invalid.
+        """
+        try:
+            # Create the full path
+            file_path = self.working_directory / filename
+            # Resolve to absolute path (follows symlinks, resolves ..)
+            resolved_path = file_path.resolve()
+
+            # Check if the resolved path is within working directory
+            try:
+                resolved_path.relative_to(self.working_directory)
+                return resolved_path
+            except ValueError:
+                logger.error(f"Security violation: Path '{filename}' attempts to escape working directory")
+                return None
+
+        except Exception as e:
+            logger.error(f"Path validation error for '{filename}': {e}")
+            return None
+
+    def _validate_command(self, command: str) -> tuple[bool, str]:
+        """
+        Validate that a command is safe to execute.
+        Returns (is_valid, error_message).
+        """
+        # Check against blocked patterns
+        for pattern in BLOCKED_COMMAND_PATTERNS:
+            if re.search(pattern, command, re.IGNORECASE):
+                error_msg = f"Security violation: Command blocked due to dangerous pattern. Command: '{command}'"
+                logger.error(error_msg)
+                return False, error_msg
+
+        # Warn about pip install without virtual environment
+        if re.search(r'\bpip3?\s+install\b', command, re.IGNORECASE):
+            if 'venv/bin/activate' not in command and str(self.venv_path) not in command:
+                warning_msg = (
+                    f"WARNING: pip install detected without virtual environment activation. "
+                    f"Consider using: source {self.venv_path}/bin/activate && {command}"
+                )
+                logger.warning(warning_msg)
+                # Still allow but warn
+
+        return True, ""
+
     def web_search(self, query: str, max_results: int = 5) -> str:
         """Perform web search using Tavily API"""
         if not self.tavily_client:
             return "Error: Tavily API client not initialized. Please set TAVILY_API_KEY environment variable."
-        
+
         try:
             response = self.tavily_client.search(
                 query=query,
                 max_results=max_results,
                 search_depth="advanced"
             )
-            
+
             results = []
             for result in response.get('results', []):
                 results.append({
@@ -244,12 +402,12 @@ Please generate tool calls as needed to research, design, and implement agents.
                     'content': result.get('content', ''),
                     'score': result.get('score', 0)
                 })
-            
+
             return json.dumps(results, indent=2)
         except Exception as e:
             logger.error(f"Web search error: {e}")
             return f"Error performing web search: {str(e)}"
-    
+
     def fetch_url(self, url: str) -> str:
         """Fetch the contents of a URL"""
         try:
@@ -261,9 +419,13 @@ Please generate tool calls as needed to research, design, and implement agents.
             return f"Error fetching URL: {str(e)}"
 
     def read_file(self, filename: str) -> str:
-        """Read file from working directory"""
+        """Read file from working directory with path validation"""
         try:
-            file_path = self.working_directory / filename
+            # Validate path is within working directory
+            file_path = self._validate_path(filename)
+            if file_path is None:
+                return f"Security Error: Cannot read '{filename}' - path is outside the working directory"
+
             if file_path.exists():
                 with open(file_path, 'r', encoding='utf-8') as f:
                     return f.read()
@@ -274,9 +436,13 @@ Please generate tool calls as needed to research, design, and implement agents.
             return f"Error reading file '{filename}': {str(e)}"
 
     def write_file(self, filename: str, content: str) -> str:
-        """Write content to file in working directory"""
+        """Write content to file in working directory with path validation"""
         try:
-            file_path = self.working_directory / filename
+            # Validate path is within working directory
+            file_path = self._validate_path(filename)
+            if file_path is None:
+                return f"Security Error: Cannot write to '{filename}' - path is outside the working directory"
+
             # Create subdirectories if they don't exist
             file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(file_path, 'w', encoding='utf-8') as f:
@@ -302,6 +468,79 @@ Please generate tool calls as needed to research, design, and implement agents.
         except Exception as e:
             logger.error(f"List files error: {e}")
             return f"Error listing files: {str(e)}"
+
+    def run_terminal_command(self, command: str, working_directory: str = None) -> str:
+        """Execute a terminal command with security validation"""
+        try:
+            # Validate the command for dangerous patterns
+            is_valid, error_msg = self._validate_command(command)
+            if not is_valid:
+                return json.dumps({
+                    "command": command,
+                    "error": error_msg,
+                    "success": False
+                }, indent=2)
+
+            # Use the specified working directory or default to agent's working directory
+            cwd = working_directory if working_directory else str(self.working_directory)
+
+            # Validate working directory is within our workspace
+            if working_directory:
+                try:
+                    cwd_path = Path(cwd).resolve()
+                    cwd_path.relative_to(self.working_directory)
+                except (ValueError, Exception) as e:
+                    logger.error(f"Working directory '{cwd}' is outside the allowed workspace")
+                    return json.dumps({
+                        "command": command,
+                        "error": f"Security Error: Working directory must be within {self.working_directory}",
+                        "success": False
+                    }, indent=2)
+
+            # Log the command for security/audit purposes
+            logger.info(f"Executing command: {command} in directory: {cwd}")
+
+            # Execute the command
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=(60 * 3)  # 3 min timeout
+            )
+
+            # Format the output
+            output = {
+                "command": command,
+                "working_directory": cwd,
+                "exit_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "success": result.returncode == 0
+            }
+
+            if result.returncode == 0:
+                logger.info(f"Command executed successfully: {command}")
+            else:
+                logger.warning(f"Command failed with exit code {result.returncode}: {command}")
+
+            return json.dumps(output, indent=2)
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"Command timed out: {command}")
+            return json.dumps({
+                "command": command,
+                "error": "Command execution timed out after 3 minutes",
+                "success": False
+            }, indent=2)
+        except Exception as e:
+            logger.error(f"Terminal command error: {e}")
+            return json.dumps({
+                "command": command,
+                "error": f"Error executing command: {str(e)}",
+                "success": False
+            }, indent=2)
 
     def create_agent(self, agent_name: str, agent_description: str, template_type: str, 
                     tools: List[str] = None, instructions: str = "") -> str:
@@ -515,6 +754,11 @@ Make sure to set up the required environment variables:
             )
         elif function_name == "list_files":
             result = self.list_files()
+        elif function_name == "run_terminal_command":
+            result = self.run_terminal_command(
+                command=arguments.get("command"),
+                working_directory=arguments.get("working_directory")
+            )
         elif function_name == "create_agent":
             result = self.create_agent(
                 agent_name=arguments.get("agent_name"),

@@ -1,32 +1,30 @@
 import os
 import json
 import logging
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from openai import OpenAI
+from tavily import TavilyClient
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class DataAnalystAgent:
-    def __init__(self, name: str, model: str, working_directory: str = "./data_analyst_agent_workspace", goal: str = "Analyzes CSV data and generates summary reports"):
+class DataanalysisagentAgent:
+    def __init__(self, name: str, model: str, working_directory: str = "./dataanalysisagent_workspace", goal: str = "AI agent for data analysis tasks including web research, file operations, and dataset retrieval"):
         self.name = name
         self.model = model
         self.working_directory = Path(working_directory)
         self.working_directory.mkdir(exist_ok=True)
         self.goal = goal
         self.instructions = '''
-When analyzing data:
-1. Use read_file to load CSV files
-2. Calculate basic statistics like mean, median, count of rows/columns
-3. Identify patterns or anomalies in data
-4. Generate summary report including:
-   - Key metrics table
-   - Observations section
-   - Data quality assessment
-5. Use write_file to save analysis reports as .txt files
+You are a data analysis specialist AI. When faced with analysis tasks:
+1. Use web_search to find latest data analysis techniques and best practices
+2. Use read_file/write_file to process dataset files
+3. Use fetch_url to retrieve datasets or documentation from web sources
+Always validate data sources and document your analysis methodology
 '''
         
         # Initialize OpenAI client
@@ -35,6 +33,14 @@ When analyzing data:
             api_key="lm-studio"
         )
         
+        # Initialize Tavily client
+        tavily_api_key = os.getenv("TAVILY_API_KEY")
+        if tavily_api_key:
+            self.tavily_client = TavilyClient(api_key=tavily_api_key)
+        else:
+            self.tavily_client = None
+            logger.warning("TAVILY_API_KEY not found in environment variables")
+        
         # Initialize messages with system prompt
         self.messages = [
             {"role": "system", "content": self.instructions}
@@ -42,6 +48,48 @@ When analyzing data:
         
         # Define tools
         self.tools = [
+        {
+                "type": "function",
+                "function": {
+                        "name": "web_search",
+                        "description": "Search the web for information",
+                        "parameters": {
+                                "type": "object",
+                                "properties": {
+                                        "query": {
+                                                "type": "string",
+                                                "description": "Search query"
+                                        },
+                                        "max_results": {
+                                                "type": "integer",
+                                                "description": "Max results (default: 5)"
+                                        }
+                                },
+                                "required": [
+                                        "query"
+                                ]
+                        }
+                }
+        },
+        {
+                "type": "function",
+                "function": {
+                        "name": "fetch_url",
+                        "description": "Fetch contents of a URL",
+                        "parameters": {
+                                "type": "object",
+                                "properties": {
+                                        "url": {
+                                                "type": "string",
+                                                "description": "URL to fetch"
+                                        }
+                                },
+                                "required": [
+                                        "url"
+                                ]
+                        }
+                }
+        },
         {
                 "type": "function",
                 "function": {
@@ -99,6 +147,82 @@ When analyzing data:
         }
 ]
 
+    def web_search(self, query: str, max_results: int = 5) -> str:
+        """Perform web search using Tavily API"""
+        if not self.tavily_client:
+            return "Error: Tavily API client not initialized. Please set TAVILY_API_KEY environment variable."
+        
+        try:
+            response = self.tavily_client.search(
+                query=query,
+                max_results=max_results,
+                search_depth="advanced"
+            )
+            
+            results = []
+            for result in response.get('results', []):
+                results.append({
+                    'title': result.get('title', ''),
+                    'url': result.get('url', ''),
+                    'content': result.get('content', ''),
+                    'score': result.get('score', 0)
+                })
+            
+            return json.dumps(results, indent=2)
+        except Exception as e:
+            logger.error(f"Web search error: {e}")
+            return f"Error performing web search: {str(e)}"
+    
+    def fetch_url(self, url: str) -> str:
+        """Fetch the contents of a URL"""
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            logger.error(f"URL fetch error: {e}")
+            return f"Error fetching URL: {str(e)}"
+
+    def read_file(self, filename: str) -> str:
+        """Read file from working directory"""
+        try:
+            file_path = self.working_directory / filename
+            if file_path.exists():
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                return f"File '{filename}' does not exist in the working directory."
+        except Exception as e:
+            logger.error(f"File read error: {e}")
+            return f"Error reading file '{filename}': {str(e)}"
+
+    def write_file(self, filename: str, content: str) -> str:
+        """Write content to file in working directory"""
+        try:
+            file_path = self.working_directory / filename
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return f"Successfully wrote content to '{filename}'"
+        except Exception as e:
+            logger.error(f"File write error: {e}")
+            return f"Error writing to file '{filename}': {str(e)}"
+
+    def list_files(self) -> str:
+        """List all files in working directory"""
+        try:
+            files = []
+            for file_path in self.working_directory.iterdir():
+                if file_path.is_file():
+                    files.append({
+                        'name': file_path.name,
+                        'size': file_path.stat().st_size,
+                        'modified': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+                    })
+            return json.dumps(files, indent=2)
+        except Exception as e:
+            logger.error(f"List files error: {e}")
+            return f"Error listing files: {str(e)}"
+
     def handle_tool_call(self, tool_call, messages: List[Dict]) -> List[Dict]:
         """Handle tool calls and return updated messages"""
         function_name = tool_call.function.name
@@ -106,6 +230,13 @@ When analyzing data:
         
         result = ""
         
+        if function_name == "web_search":
+            result = self.web_search(
+                query=arguments.get("query"),
+                max_results=arguments.get("max_results", 5)
+            )
+        elif function_name == "fetch_url":
+            result = self.fetch_url(url=arguments.get("url"))
         elif function_name == "read_file":
             result = self.read_file(filename=arguments.get("filename"))
         elif function_name == "write_file":
@@ -245,8 +376,8 @@ When analyzing data:
 
 if __name__ == "__main__":
     # Example usage
-    agent = DataAnalystAgent(
-        name="Data Analyst Agent",
+    agent = DataanalysisagentAgent(
+        name="DataAnalysisAgent",
         model="qwen/qwen3-32b"
     )
     

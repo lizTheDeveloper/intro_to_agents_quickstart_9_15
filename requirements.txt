@@ -67,6 +67,9 @@ aiohttp>=3.9.0
 aioredis>=2.0.0
 asyncpg>=0.29.0
 
+# NATS Messaging for Agent Communication
+nats-py>=2.0.0
+
 # Testing & Development
 pytest>=7.4.0
 pytest-asyncio>=0.21.0

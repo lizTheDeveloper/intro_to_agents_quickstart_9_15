@@ -38,3 +38,6 @@
 2025-09-24 18:25:47 | INFO | Executing tool: get_current_weather with args: {'location': 'Tokyo'}
 2025-09-24 18:25:47 | INFO | Tool 'get_current_weather' executed successfully
 2025-09-24 18:25:47 | INFO | Agentic iteration 1/10
+2025-09-24 18:26:45 | INFO | Task completed successfully
+2025-09-24 18:52:35 | INFO | LM Studio connection test successful
+2025-09-24 18:52:35 | ERROR | Chat completion failed: LLM.respond() got an unexpected keyword argument 'temperature'

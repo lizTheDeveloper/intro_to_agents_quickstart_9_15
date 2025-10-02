@@ -1,0 +1,10 @@
+.env.template
+.env
+analysis_log.txt
+output/.
+test-results/.
+test/.
+*.pyc
+__pycache__/.
+*.sqlite3
+.env.local

@@ -1,0 +1,19 @@
+# Data Analysis Methodology
+
+## Data Validation
+1. Verify source credibility via domain authority (.edu, .gov, .org preferred)
+2. Cross-reference with 3+ independent sources
+3. Check data collection methodology (random sampling, controlled experiments, etc.)
+
+## Approved Data Sources
+- Government statistics (e.g., Census Bureau)
+- Academic research databases
+- Reputable industry reports (Gartner, Statista)
+- Peer-reviewed journals
+
+## Analysis Techniques
+- Descriptive statistics (mean, median, SD)
+- Regression analysis
+- Time series forecasting
+- Hypothesis testing (p < 0.05 threshold)
+- Machine learning (when appropriate)

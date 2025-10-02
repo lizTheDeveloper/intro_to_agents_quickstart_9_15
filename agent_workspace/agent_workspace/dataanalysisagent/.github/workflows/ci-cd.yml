@@ -1,0 +1,43 @@
+name: Data-Analysis-Agent-CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Run tests
+      run: |
+        pytest test_agent.py --cov=main.py
+
+    - name: Build Docker image
+      run: |
+        docker build -t dataanalysisagent .
+
+    - name: Test Docker image
+      run: |
+        docker run --rm dataanalysisagent
+
+    - name: Upload test reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: test-results/
